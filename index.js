@@ -5,15 +5,31 @@ import {
 } from "@aws-sdk/client-s3";
 import { createHash, createHmac } from "crypto";
 
+const REQUIRED_ENV_VARS = [
+  "TUYA_ACCESS_ID",
+  "TUYA_ACCESS_SECRET",
+  "TUYA_BUCKET_NAME",
+  "TUYA_UID",
+];
+
+const missingVars = REQUIRED_ENV_VARS.filter((v) => !process.env[v]);
+
+if (missingVars.length > 0) {
+  throwError(
+    "DeployError",
+    `Missing required environment variables: ${missingVars.join(", ")}`,
+  );
+}
+
 const ACCESS_ID = process.env.TUYA_ACCESS_ID;
 const ACCESS_SECRET = process.env.TUYA_ACCESS_SECRET;
-const BASE_URL = "https://openapi.tuyaeu.com";
 const BUCKET_NAME = process.env.TUYA_BUCKET_NAME;
+const UID = process.env.TUYA_UID;
+const BASE_URL = "https://openapi.tuyaeu.com";
 const KEY_STORAGE = {
   token: "cache-token.json",
   categories: "cache-categories.json",
 };
-const UID = process.env.TUYA_UID;
 const ABORT_TIMEOUT_MS = 10000;
 const TOKEN_REFRESH_BUFFER_MS = 60000;
 
@@ -218,8 +234,8 @@ async function getDeviceList() {
 
   await ensureCategories();
 
-  for (let i = 0; i < data.result.length; i++) {
-    data.result[i].category_title = cacheCategories[data.result[i].category];
+  for (const device of data.result || []) {
+    device.category_title = cacheCategories[device.category];
   }
 
   return data.result;
@@ -256,6 +272,11 @@ async function setDeviceProperty(deviceId, properties) {
   return data.result;
 }
 
+function requireDeviceId(body) {
+  if (!body?.deviceId || typeof body.deviceId !== "string") {
+    throwError("ValidationError", "deviceId is required");
+  }
+}
 function buildResponse({ statusCode = 200, body }) {
   return {
     statusCode,
@@ -287,6 +308,8 @@ export const handler = async (event) => {
         });
       }
       case "/device-properties": {
+        requireDeviceId(body);
+
         const { deviceId } = body;
         const { properties } = await getDeviceProperties(deviceId);
 
@@ -295,6 +318,8 @@ export const handler = async (event) => {
         });
       }
       case "/set-property": {
+        requireDeviceId(body);
+
         const { deviceId, code, value } = body;
         const properties = { properties: { [code]: value } };
         const result = await setDeviceProperty(deviceId, properties);
@@ -304,6 +329,8 @@ export const handler = async (event) => {
         });
       }
       case "/set-status": {
+        requireDeviceId(body);
+
         const { deviceId, code, value } = body;
         const commands = { commands: [{ code, value }] };
         const result = await setDeviceStatus(deviceId, commands);

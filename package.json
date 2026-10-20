@@ -4,7 +4,8 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "validate-env": "node -e \"['TUYA_ACCESS_ID','TUYA_ACCESS_SECRET','TUYA_UID','TUYA_BUCKET_NAME'].forEach(v => { if(!process.env[v]) { console.error('Missing:', v); process.exit(1); } })\"",
+    "predeploy": "npm run validate-env"
   },
   "author": "Kashirskiy Denis",
   "license": "MIT",
