@@ -272,11 +272,93 @@ async function setDeviceProperty(deviceId, properties) {
   return data.result;
 }
 
+async function getSignalStrength(deviceId, deviceType) {
+  const data = await tuyaRequest({
+    url: `/v2.0/cloud/thing/${deviceId}/${deviceType}/signal`,
+    errorInfo: "get signal strength",
+    method: "GET",
+  });
+
+  return data.result;
+}
+
+async function getUpdateInformation(deviceId) {
+  const data = await tuyaRequest({
+    url: `/v2.0/cloud/thing/${deviceId}/firmware`,
+    errorInfo: "get firmware update info",
+    method: "GET",
+  });
+
+  return data.result;
+}
+
+async function getUpdateProgress(deviceId, channel) {
+  const data = await tuyaRequest({
+    url: `/v2.0/cloud/thing/${deviceId}/firmware/${channel}/progress`,
+    errorInfo: "get firmware update progress",
+    method: "GET",
+  });
+
+  return data.result;
+}
+
+async function confirmStartUpdate(deviceId, channel) {
+  const data = await tuyaRequest({
+    url: `/v2.0/cloud/thing/${deviceId}/firmware/${channel}`,
+    errorInfo: "confirm start update",
+    method: "POST",
+  });
+
+  return data.result;
+}
+
+async function restoreFactoryDefaults(deviceId) {
+  const data = await tuyaRequest({
+    url: `/v2.0/cloud/thing/${deviceId}/reset`,
+    errorInfo: "restore factory defaults",
+    method: "POST",
+  });
+
+  return data.result;
+}
+
+async function getFreezeState(deviceId) {
+  const data = await tuyaRequest({
+    url: `/v2.0/cloud/thing/${deviceId}/state`,
+    errorInfo: "get freeze state",
+    method: "GET",
+  });
+
+  return data.result;
+}
+
+async function setFreezeState(deviceId, state) {
+  const data = await tuyaRequest({
+    url: `/v2.0/cloud/thing/${deviceId}/freeze`,
+    errorInfo: "get freeze state",
+    method: "POST",
+    body: state,
+  });
+
+  return data.result;
+}
+
+async function deleteDevice(deviceId) {
+  const data = await tuyaRequest({
+    url: ` /v2.0/cloud/thing/${deviceId}`,
+    errorInfo: "delete device",
+    method: "DELETE",
+  });
+
+  return data.result;
+}
+
 function requireDeviceId(body) {
   if (!body?.deviceId || typeof body.deviceId !== "string") {
     throwError("ValidationError", "deviceId is required");
   }
 }
+
 function buildResponse({ statusCode = 200, body }) {
   return {
     statusCode,
@@ -334,6 +416,86 @@ export const handler = async (event) => {
         const { deviceId, code, value } = body;
         const commands = { commands: [{ code, value }] };
         const result = await setDeviceStatus(deviceId, commands);
+
+        return buildResponse({
+          body: result,
+        });
+      }
+      case "/signal-strengthe": {
+        requireDeviceId(body);
+
+        const { deviceId, deviceType } = body;
+        const result = await getSignalStrength(deviceId, deviceType);
+
+        return buildResponse({
+          body: result,
+        });
+      }
+      case "/update-info": {
+        requireDeviceId(body);
+
+        const { deviceId } = body;
+        const result = await getUpdateInformation(deviceId);
+
+        return buildResponse({
+          body: result,
+        });
+      }
+      case "/update-progress": {
+        requireDeviceId(body);
+
+        const { deviceId, channel } = body;
+        const result = await getUpdateProgress(deviceId, channel);
+
+        return buildResponse({
+          body: result,
+        });
+      }
+      case "/update-start": {
+        requireDeviceId(body);
+
+        const { deviceId, channel } = body;
+        const result = await confirmStartUpdate(deviceId, channel);
+
+        return buildResponse({
+          body: result,
+        });
+      }
+      case "/restore-default": {
+        requireDeviceId(body);
+
+        const { deviceId } = body;
+        const result = await restoreFactoryDefaults(deviceId);
+
+        return buildResponse({
+          body: result,
+        });
+      }
+      case "/get-freeze": {
+        requireDeviceId(body);
+
+        const { deviceId } = body;
+        const result = await getFreezeState(deviceId);
+
+        return buildResponse({
+          body: result,
+        });
+      }
+      case "/set-freeze": {
+        requireDeviceId(body);
+
+        const { deviceId, state } = body;
+        const result = await setFreezeState(deviceId, state);
+
+        return buildResponse({
+          body: result,
+        });
+      }
+      case "/device-delete": {
+        requireDeviceId(body);
+
+        const { deviceId } = body;
+        const result = await deleteDevice(deviceId);
 
         return buildResponse({
           body: result,
