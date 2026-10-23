@@ -238,7 +238,7 @@ async function getDeviceList() {
     device.category_title = cacheCategories[device.category];
   }
 
-  return data.result;
+  return data.result || [];
 }
 
 async function getDeviceProperties(deviceId) {
@@ -250,7 +250,8 @@ async function getDeviceProperties(deviceId) {
   return data.result;
 }
 
-async function setDeviceStatus(deviceId, commands) {
+async function setDeviceStatus(deviceId, code, value) {
+  const commands = { commands: [{ code, value }] };
   const data = await tuyaRequest({
     url: `/v1.0/devices/${deviceId}/commands`,
     errorInfo: "set status of device",
@@ -261,7 +262,9 @@ async function setDeviceStatus(deviceId, commands) {
   return data.result;
 }
 
-async function setDeviceProperty(deviceId, properties) {
+async function setDeviceProperty(deviceId, code, value) {
+  const properties = { properties: { [code]: value } };
+
   const data = await tuyaRequest({
     url: `/v2.0/cloud/thing/${deviceId}/shadow/properties/issue`,
     errorInfo: "set property of device",
@@ -276,7 +279,6 @@ async function getSignalStrength(deviceId, deviceType) {
   const data = await tuyaRequest({
     url: `/v2.0/cloud/thing/${deviceId}/${deviceType}/signal`,
     errorInfo: "get signal strength",
-    method: "GET",
   });
 
   return data.result;
@@ -286,7 +288,6 @@ async function getUpdateInformation(deviceId) {
   const data = await tuyaRequest({
     url: `/v2.0/cloud/thing/${deviceId}/firmware`,
     errorInfo: "get firmware update info",
-    method: "GET",
   });
 
   return data.result;
@@ -296,7 +297,6 @@ async function getUpdateProgress(deviceId, channel) {
   const data = await tuyaRequest({
     url: `/v2.0/cloud/thing/${deviceId}/firmware/${channel}/progress`,
     errorInfo: "get firmware update progress",
-    method: "GET",
   });
 
   return data.result;
@@ -326,7 +326,6 @@ async function getFreezeState(deviceId) {
   const data = await tuyaRequest({
     url: `/v2.0/cloud/thing/${deviceId}/state`,
     errorInfo: "get freeze state",
-    method: "GET",
   });
 
   return data.result;
@@ -335,7 +334,7 @@ async function getFreezeState(deviceId) {
 async function setFreezeState(deviceId, state) {
   const data = await tuyaRequest({
     url: `/v2.0/cloud/thing/${deviceId}/freeze`,
-    errorInfo: "get freeze state",
+    errorInfo: "set freeze state",
     method: "POST",
     body: state,
   });
@@ -345,7 +344,7 @@ async function setFreezeState(deviceId, state) {
 
 async function deleteDevice(deviceId) {
   const data = await tuyaRequest({
-    url: ` /v2.0/cloud/thing/${deviceId}`,
+    url: `/v2.0/cloud/thing/${deviceId}`,
     errorInfo: "delete device",
     method: "DELETE",
   });
@@ -353,9 +352,10 @@ async function deleteDevice(deviceId) {
   return data.result;
 }
 
-function requireDeviceId(body) {
-  if (!body?.deviceId || typeof body.deviceId !== "string") {
-    throwError("ValidationError", "deviceId is required");
+function requireField(body, field) {
+  const value = body?.[field];
+  if (value === "" || value === null || value === undefined) {
+    throwError("ValidationError", `Field "${field}" is required`);
   }
 }
 
@@ -369,8 +369,94 @@ function buildResponse({ statusCode = 200, body }) {
   };
 }
 
+const ROUTES = {
+  "/get-devices": {
+    method: "GET",
+    handler: getDeviceList,
+  },
+  "/get-properties": {
+    method: "GET",
+    required: ["deviceId"],
+    handler: ({ deviceId }) => getDeviceProperties(deviceId),
+  },
+  "/set-property": {
+    method: "POST",
+    required: ["deviceId", "code", "value"],
+    handler: ({ deviceId, code, value }) =>
+      setDeviceProperty(deviceId, code, value),
+  },
+  "/set-status": {
+    method: "POST",
+    required: ["deviceId", "code", "value"],
+    handler: ({ deviceId, code, value }) =>
+      setDeviceStatus(deviceId, code, value),
+  },
+  "/get-signal": {
+    method: "GET",
+    required: ["deviceId", "deviceType"],
+    handler: ({ deviceId, deviceType }) =>
+      getSignalStrength(deviceId, deviceType),
+  },
+  "/get-update-info": {
+    method: "GET",
+    required: ["deviceId"],
+    handler: ({ deviceId }) => getUpdateInformation(deviceId),
+  },
+  "/get-update-progress": {
+    method: "GET",
+    required: ["deviceId", "channel"],
+    handler: ({ deviceId, channel }) => getUpdateProgress(deviceId, channel),
+  },
+  "/start-update": {
+    method: "POST",
+    required: ["deviceId", "channel"],
+    handler: ({ deviceId, channel }) => confirmStartUpdate(deviceId, channel),
+  },
+  "/restore-default": {
+    method: "POST",
+    required: ["deviceId"],
+    handler: ({ deviceId }) => restoreFactoryDefaults(deviceId),
+  },
+  "/get-freeze": {
+    method: "GET",
+    required: ["deviceId"],
+    handler: ({ deviceId }) => getFreezeState(deviceId),
+  },
+  "/set-freeze": {
+    method: "POST",
+    required: ["deviceId", "state"],
+    handler: ({ deviceId, state }) => setFreezeState(deviceId, { state }),
+  },
+  "/delete-device": {
+    method: "DELETE",
+    required: ["deviceId"],
+    handler: ({ deviceId }) => deleteDevice(deviceId),
+  },
+};
+
 export const handler = async (event) => {
   try {
+    const route = ROUTES[event.path];
+    if (!route) {
+      return buildResponse({
+        statusCode: 404,
+        body: {
+          error: "NotFound",
+          message: "The requested resource was not found",
+        },
+      });
+    }
+
+    if (route.method !== event.httpMethod) {
+      return buildResponse({
+        statusCode: 405,
+        body: {
+          error: "MethodNotAllowed",
+          message: "The request method is not supported by the target resource",
+        },
+      });
+    }
+
     let body = {};
     if (event.body) {
       try {
@@ -381,138 +467,11 @@ export const handler = async (event) => {
       }
     }
 
-    switch (event.path) {
-      case "/device-list": {
-        const devices = await getDeviceList();
+    route.required?.forEach((field) => requireField(body, field));
 
-        return buildResponse({
-          body: devices,
-        });
-      }
-      case "/device-properties": {
-        requireDeviceId(body);
-
-        const { deviceId } = body;
-        const { properties } = await getDeviceProperties(deviceId);
-
-        return buildResponse({
-          body: properties,
-        });
-      }
-      case "/set-property": {
-        requireDeviceId(body);
-
-        const { deviceId, code, value } = body;
-        const properties = { properties: { [code]: value } };
-        const result = await setDeviceProperty(deviceId, properties);
-
-        return buildResponse({
-          body: result,
-        });
-      }
-      case "/set-status": {
-        requireDeviceId(body);
-
-        const { deviceId, code, value } = body;
-        const commands = { commands: [{ code, value }] };
-        const result = await setDeviceStatus(deviceId, commands);
-
-        return buildResponse({
-          body: result,
-        });
-      }
-      case "/signal-strengthe": {
-        requireDeviceId(body);
-
-        const { deviceId, deviceType } = body;
-        const result = await getSignalStrength(deviceId, deviceType);
-
-        return buildResponse({
-          body: result,
-        });
-      }
-      case "/update-info": {
-        requireDeviceId(body);
-
-        const { deviceId } = body;
-        const result = await getUpdateInformation(deviceId);
-
-        return buildResponse({
-          body: result,
-        });
-      }
-      case "/update-progress": {
-        requireDeviceId(body);
-
-        const { deviceId, channel } = body;
-        const result = await getUpdateProgress(deviceId, channel);
-
-        return buildResponse({
-          body: result,
-        });
-      }
-      case "/update-start": {
-        requireDeviceId(body);
-
-        const { deviceId, channel } = body;
-        const result = await confirmStartUpdate(deviceId, channel);
-
-        return buildResponse({
-          body: result,
-        });
-      }
-      case "/restore-default": {
-        requireDeviceId(body);
-
-        const { deviceId } = body;
-        const result = await restoreFactoryDefaults(deviceId);
-
-        return buildResponse({
-          body: result,
-        });
-      }
-      case "/get-freeze": {
-        requireDeviceId(body);
-
-        const { deviceId } = body;
-        const result = await getFreezeState(deviceId);
-
-        return buildResponse({
-          body: result,
-        });
-      }
-      case "/set-freeze": {
-        requireDeviceId(body);
-
-        const { deviceId, state } = body;
-        const result = await setFreezeState(deviceId, state);
-
-        return buildResponse({
-          body: result,
-        });
-      }
-      case "/device-delete": {
-        requireDeviceId(body);
-
-        const { deviceId } = body;
-        const result = await deleteDevice(deviceId);
-
-        return buildResponse({
-          body: result,
-        });
-      }
-      default: {
-        return buildResponse({
-          statusCode: 404,
-          body: {
-            error: "NotFound",
-            message: "The requested resource was not found",
-          },
-        });
-      }
-    }
+    return buildResponse({ body: await route.handler(body) });
   } catch (error) {
-    console.error(error.message);
+    console.error(error.name, error.message);
 
     switch (error.name) {
       case "ValidationError": {
